@@ -1,50 +1,73 @@
-import psycopg2
+"""Database helper functions for the Panel IMS app.
+
+Connection settings are read from environment variables so that no credentials
+need to be committed to source control. If a variable is not set, a sensible
+local-development default is used (matching the values in the original project),
+so the app still runs out of the box against a local PostgreSQL instance.
+
+Copy `.env.example` to `.env` and adjust the values for your environment.
+"""
+
+import os
+
 import pandas as pd
+import psycopg2
+
+try:
+    # Optional: load variables from a local .env file if python-dotenv is installed.
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    # python-dotenv is optional; environment variables still work without it.
+    pass
+
 
 def getdblocation():
-    # Define your connection details
-    db = psycopg2.connect(
-        # Get your credentials from the pgamin. More details below.
-        host='localhost',
-        database='271casedb',
-        user='postgres',
-        port=5432,
-        password='password'
+    """Open and return a new PostgreSQL connection.
+
+    Credentials are taken from the environment, falling back to local defaults.
+    """
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        database=os.getenv("DB_NAME", "271casedb"),
+        user=os.getenv("DB_USER", "postgres"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        password=os.getenv("DB_PASSWORD", "password"),
     )
-    # return the connection details
-    return db
 
-print(getdblocation)
 
-# function to modify the DB (add, edit)
 def modifydatabase(sql, values):
+    """Run an INSERT/UPDATE/DELETE statement and commit it.
+
+    Arguments:
+        sql    -- SQL statement with %s placeholders
+        values -- list of values for the placeholders (use [] if none)
+    """
     db = getdblocation()
+    try:
+        cursor = db.cursor()
+        cursor.execute(sql, values)
+        db.commit()
+    finally:
+        # Always close the connection, even if the query raises.
+        db.close()
 
-    # We create a cursor object
-    # Cursor - a mechanism used to manipulate db objects on a per-row basis
-    # In this case, a cursor is used to add/edit each row
-    cursor = db.cursor()
 
-    # Execute the sql code with the cursor value
-    cursor.execute(sql, values)
-
-    # Make the changes to the db persistent
-    db.commit()
-
-    # Close the connection (so nobody else can use it)
-    db.close()
-
-# function for querying data from the database
 def querydatafromdatabase(sql, values, dfcolumns):
-    # ARGUMENTS
-    # sql -- sql query with placeholders (%s)
-    # values -- values for the placeholders
-    # dfcolumns -- column names for the output
+    """Run a SELECT query and return the result as a pandas DataFrame.
 
+    Arguments:
+        sql       -- SQL query with %s placeholders
+        values    -- list of values for the placeholders (use [] if none)
+        dfcolumns -- column names for the returned DataFrame
+    """
     db = getdblocation()
-    cur = db.cursor()
-    cur.execute(sql, values)
-    rows = pd.DataFrame(cur.fetchall(), columns=dfcolumns)
-    db.close()
-    
+    try:
+        cur = db.cursor()
+        cur.execute(sql, values)
+        rows = pd.DataFrame(cur.fetchall(), columns=dfcolumns)
+    finally:
+        db.close()
+
     return rows
